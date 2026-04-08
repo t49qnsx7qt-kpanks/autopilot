@@ -1,0 +1,242 @@
+# ============================================================
+# AUTOPILOT — CI/CD Pipeline
+# Trigger: push to main branch
+# Jobs: test → build → deploy → health verify → notify
+# ============================================================
+# Required GitHub Secrets:
+#   RAILWAY_TOKEN         — Railway API token
+#   DISCORD_WEBHOOK_URL   — Discord alerts webhook
+#   AWS_ACCESS_KEY_ID     — For S3 asset uploads (optional)
+#   AWS_SECRET_ACCESS_KEY
+# ============================================================
+
+name: Autopilot Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      service:
+        description: 'Service to deploy (all / dele-api / pageforge / outreachbot / openclaw)'
+        required: false
+        default: 'all'
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false   # never cancel a deploy mid-flight
+
+env:
+  NODE_VERSION: '20'
+  PYTHON_VERSION: '3.11'
+
+jobs:
+  # ── 1. DETECT WHAT CHANGED ──────────────────────────────
+  changes:
+    name: Detect changes
+    runs-on: ubuntu-latest
+    outputs:
+      dele_api:       ${{ steps.filter.outputs.dele_api }}
+      pageforge:      ${{ steps.filter.outputs.pageforge }}
+      outreachbot:    ${{ steps.filter.outputs.outreachbot }}
+      openclaw:       ${{ steps.filter.outputs.openclaw }}
+      mobile:         ${{ steps.filter.outputs.mobile }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            dele_api:
+              - 'dele-api/**'
+            pageforge:
+              - 'biz-plugins/pageforge/**'
+            outreachbot:
+              - 'biz-plugins/outreachbot/**'
+            openclaw:
+              - 'openclaw/**'
+            mobile:
+              - 'dele-mobile/**'
+
+  # ── 2. TEST ─────────────────────────────────────────────
+  test:
+    name: Run tests
+    runs-on: ubuntu-latest
+    needs: changes
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install -r dele-api/requirements.txt
+          pip install pytest pytest-asyncio httpx
+
+      - name: Run Dele API tests
+        if: needs.changes.outputs.dele_api == 'true'
+        run: pytest dele-api/tests/ -v --tb=short
+        env:
+          DATABASE_URL: ${{ secrets.TEST_DATABASE_URL }}
+
+      - name: Run BizSuite tests
+        if: needs.changes.outputs.pageforge == 'true' || needs.changes.outputs.outreachbot == 'true'
+        run: pytest biz-plugins/tests/ -v --tb=short
+
+  # ── 3. BUILD & PUSH DOCKER ──────────────────────────────
+  build:
+    name: Build images
+    runs-on: ubuntu-latest
+    needs: [changes, test]
+    if: |
+      needs.changes.outputs.dele_api == 'true' ||
+      needs.changes.outputs.pageforge == 'true' ||
+      needs.changes.outputs.outreachbot == 'true' ||
+      needs.changes.outputs.openclaw == 'true'
+    strategy:
+      matrix:
+        include:
+          - service: dele-api
+            changed: ${{ needs.changes.outputs.dele_api }}
+            path: ./dele-api
+          - service: pageforge
+            changed: ${{ needs.changes.outputs.pageforge }}
+            path: ./biz-plugins/pageforge
+          - service: outreachbot
+            changed: ${{ needs.changes.outputs.outreachbot }}
+            path: ./biz-plugins/outreachbot
+          - service: openclaw
+            changed: ${{ needs.changes.outputs.openclaw }}
+            path: ./openclaw
+    steps:
+      - uses: actions/checkout@v4
+        if: matrix.changed == 'true'
+
+      - name: Validate Dockerfile exists
+        if: matrix.changed == 'true'
+        run: |
+          if [[ ! -f "${{ matrix.path }}/Dockerfile" ]]; then
+            echo "❌ No Dockerfile found at ${{ matrix.path }}"
+            exit 1
+          fi
+
+      - name: Build image (validation)
+        if: matrix.changed == 'true'
+        run: |
+          docker build \
+            --build-arg BUILD_DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ') \
+            --build-arg GIT_SHA=${{ github.sha }} \
+            -t ${{ matrix.service }}:${{ github.sha }} \
+            ${{ matrix.path }}
+
+  # ── 4. DEPLOY TO RAILWAY ────────────────────────────────
+  deploy:
+    name: Deploy
+    runs-on: ubuntu-latest
+    needs: [changes, build]
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Railway CLI
+        run: npm install -g @railway/cli
+
+      - name: Deploy Dele API
+        if: needs.changes.outputs.dele_api == 'true'
+        run: railway up --service dele-api --detach
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+
+      - name: Deploy PageForge
+        if: needs.changes.outputs.pageforge == 'true'
+        run: railway up --service pageforge --detach
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+
+      - name: Deploy OutreachBot
+        if: needs.changes.outputs.outreachbot == 'true'
+        run: railway up --service outreachbot --detach
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+
+      - name: Deploy OpenClaw
+        if: needs.changes.outputs.openclaw == 'true'
+        run: railway up --service openclaw --detach
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+
+  # ── 5. POST-DEPLOY HEALTH VERIFY ────────────────────────
+  verify:
+    name: Verify deployments
+    runs-on: ubuntu-latest
+    needs: deploy
+    steps:
+      - name: Wait for Railway rollout
+        run: sleep 30
+
+      - name: Health check all services
+        run: |
+          declare -A SERVICES=(
+            ["Dele API"]="https://dele-api.railway.app/health"
+            ["PageForge"]="https://pageforge.railway.app/health"
+            ["OutreachBot"]="https://outreachbot.railway.app/health"
+            ["OpenClaw"]="https://openclaw.railway.app/health"
+          )
+          FAILED=()
+          for name in "${!SERVICES[@]}"; do
+            url="${SERVICES[$name]}"
+            status=$(curl -s -o /dev/null -w "%{http_code}" --max-time 20 "$url" || echo "000")
+            if [[ "$status" == "200" ]]; then
+              echo "✅ $name — $status"
+            else
+              echo "❌ $name — $status"
+              FAILED+=("$name")
+            fi
+          done
+          if [[ ${#FAILED[@]} -gt 0 ]]; then
+            echo "FAILED_SERVICES=${FAILED[*]}" >> $GITHUB_ENV
+            exit 1
+          fi
+
+  # ── 6. NOTIFY ───────────────────────────────────────────
+  notify_success:
+    name: Notify success
+    runs-on: ubuntu-latest
+    needs: verify
+    if: success()
+    steps:
+      - name: Discord success
+        run: |
+          curl -s -X POST "${{ secrets.DISCORD_WEBHOOK_URL }}" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "embeds": [{
+                "title": "🚀 Deploy Successful",
+                "description": "All services deployed and health-verified.\n\n**Commit:** `'"${{ github.sha }}"'`\n**Branch:** `'"${{ github.ref_name }}"'`\n**By:** '"${{ github.actor }}"'",
+                "color": 3066993,
+                "footer": {"text": "Autopilot CI/CD · '"$(date '+%Y-%m-%d %H:%M:%S')"'"}
+              }]
+            }'
+
+  notify_failure:
+    name: Notify failure
+    runs-on: ubuntu-latest
+    needs: [test, build, deploy, verify]
+    if: failure()
+    steps:
+      - name: Discord failure
+        run: |
+          curl -s -X POST "${{ secrets.DISCORD_WEBHOOK_URL }}" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "embeds": [{
+                "title": "❌ Deploy Failed",
+                "description": "Pipeline failed. Check GitHub Actions for details.\n\n**Commit:** `'"${{ github.sha }}"'`\n**Branch:** `'"${{ github.ref_name }}"'`\n**Failed services:** '"${FAILED_SERVICES:-unknown}"'\n\n[View Run]('"${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"')",
+                "color": 15158332,
+                "footer": {"text": "Autopilot CI/CD · '"$(date '+%Y-%m-%d %H:%M:%S')"'"}
+              }]
+            }'

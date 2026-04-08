@@ -1,0 +1,544 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Autopilot — Operations Dashboard</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;500&display=swap');
+
+  :root {
+    --bg: #0a0c0f;
+    --bg2: #0f1217;
+    --bg3: #151a22;
+    --border: #1e2630;
+    --border2: #263040;
+    --text: #c8d4e0;
+    --text2: #6a7f94;
+    --text3: #3d5065;
+    --green: #00d084;
+    --green-dim: #00d08422;
+    --red: #ff4757;
+    --red-dim: #ff475722;
+    --amber: #ffa502;
+    --amber-dim: #ffa50222;
+    --blue: #1e90ff;
+    --blue-dim: #1e90ff18;
+    --font-mono: 'IBM Plex Mono', monospace;
+    --font-sans: 'IBM Plex Sans', sans-serif;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-sans);
+    font-size: 13px;
+    line-height: 1.5;
+    min-height: 100vh;
+    padding: 24px;
+  }
+
+  /* ── Header ── */
+  .header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 28px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  .logo {
+    display: flex; align-items: center; gap: 10px;
+  }
+  .logo-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--green);
+    box-shadow: 0 0 8px var(--green);
+    animation: pulse 2s ease-in-out infinite;
+  }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+  .logo-text {
+    font-family: var(--font-mono);
+    font-size: 15px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    color: #e0eaf4;
+  }
+  .logo-sub {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text3);
+    letter-spacing: 0.1em;
+  }
+  .header-right {
+    display: flex; align-items: center; gap: 16px;
+  }
+  .clock {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--text2);
+  }
+  .refresh-btn {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    padding: 6px 14px;
+    background: transparent;
+    border: 1px solid var(--border2);
+    color: var(--text2);
+    border-radius: 4px;
+    cursor: pointer;
+    letter-spacing: 0.05em;
+    transition: all 0.15s;
+  }
+  .refresh-btn:hover { border-color: var(--blue); color: var(--blue); }
+
+  /* ── Grid layout ── */
+  .grid-top {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+    margin-bottom: 12px;
+  }
+  .grid-main {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-bottom: 12px;
+  }
+  .grid-bottom {
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    gap: 12px;
+  }
+
+  /* ── Cards ── */
+  .card {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 16px;
+  }
+  .card-label {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    color: var(--text3);
+    text-transform: uppercase;
+    margin-bottom: 8px;
+  }
+  .card-value {
+    font-family: var(--font-mono);
+    font-size: 26px;
+    font-weight: 600;
+    color: #e0eaf4;
+    line-height: 1;
+  }
+  .card-sub {
+    font-size: 11px;
+    color: var(--text2);
+    margin-top: 4px;
+  }
+  .card-value.green { color: var(--green); }
+  .card-value.amber { color: var(--amber); }
+  .card-value.red   { color: var(--red); }
+
+  /* ── Section headers ── */
+  .section-header {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    color: var(--text3);
+    text-transform: uppercase;
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .section-header::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+  }
+
+  /* ── Service rows ── */
+  .service-list { display: flex; flex-direction: column; gap: 8px; }
+  .service-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    cursor: pointer;
+    transition: border-color 0.15s;
+  }
+  .service-row:hover { border-color: var(--border2); }
+  .service-row.status-ok   { border-left: 2px solid var(--green); }
+  .service-row.status-down { border-left: 2px solid var(--red); }
+  .service-row.status-warn { border-left: 2px solid var(--amber); }
+  .svc-dot {
+    width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
+  }
+  .svc-dot.ok   { background: var(--green); box-shadow: 0 0 6px var(--green); }
+  .svc-dot.down { background: var(--red);   box-shadow: 0 0 6px var(--red); animation: blink .8s step-end infinite; }
+  .svc-dot.warn { background: var(--amber); }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.2} }
+  .svc-name {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: #cdd8e3;
+    flex: 1;
+  }
+  .svc-latency {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text2);
+    min-width: 56px;
+    text-align: right;
+  }
+  .svc-status {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    padding: 2px 8px;
+    border-radius: 3px;
+    font-weight: 500;
+    letter-spacing: 0.05em;
+  }
+  .svc-status.ok   { background: var(--green-dim); color: var(--green); }
+  .svc-status.down { background: var(--red-dim);   color: var(--red); }
+  .svc-status.warn { background: var(--amber-dim); color: var(--amber); }
+  .svc-uptime {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--text3);
+    min-width: 44px;
+    text-align: right;
+  }
+
+  /* ── Deploy feed ── */
+  .deploy-list { display: flex; flex-direction: column; gap: 6px; }
+  .deploy-row {
+    display: grid;
+    grid-template-columns: auto 1fr auto auto;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+  }
+  .deploy-icon { font-size: 13px; }
+  .deploy-msg { color: var(--text); }
+  .deploy-sha {
+    color: var(--blue);
+    font-size: 10px;
+    letter-spacing: 0.03em;
+  }
+  .deploy-time { color: var(--text3); font-size: 10px; }
+
+  /* ── Uptime bars ── */
+  .uptime-chart { display: flex; flex-direction: column; gap: 10px; }
+  .uptime-row { display: flex; flex-direction: column; gap: 4px; }
+  .uptime-row-header {
+    display: flex; justify-content: space-between;
+    font-family: var(--font-mono); font-size: 10px;
+    color: var(--text2);
+  }
+  .uptime-bars {
+    display: flex; gap: 2px;
+  }
+  .uptime-bar {
+    flex: 1; height: 20px; border-radius: 2px;
+    cursor: pointer;
+    transition: opacity 0.1s;
+  }
+  .uptime-bar:hover { opacity: 0.7; }
+  .uptime-bar.ok   { background: var(--green); opacity: 0.7; }
+  .uptime-bar.ok:hover { opacity: 1; }
+  .uptime-bar.down { background: var(--red); }
+  .uptime-bar.partial { background: var(--amber); opacity: 0.6; }
+
+  /* ── Alert feed ── */
+  .alert-list { display: flex; flex-direction: column; gap: 6px; max-height: 200px; overflow-y: auto; }
+  .alert-list::-webkit-scrollbar { width: 4px; }
+  .alert-list::-webkit-scrollbar-track { background: transparent; }
+  .alert-list::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+  .alert-row {
+    display: flex; align-items: flex-start; gap: 8px;
+    padding: 8px 10px;
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-size: 11px;
+  }
+  .alert-row.critical { border-left: 2px solid var(--red); }
+  .alert-row.warn     { border-left: 2px solid var(--amber); }
+  .alert-row.info     { border-left: 2px solid var(--blue); }
+  .alert-row.ok       { border-left: 2px solid var(--green); }
+  .alert-icon { font-size: 12px; flex-shrink: 0; margin-top: 1px; }
+  .alert-body { flex: 1; }
+  .alert-msg { color: var(--text); line-height: 1.4; }
+  .alert-meta {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--text3);
+    margin-top: 2px;
+  }
+
+  /* ── Backup status ── */
+  .backup-list { display: flex; flex-direction: column; gap: 8px; }
+  .backup-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 10px;
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+  }
+  .backup-name { flex: 1; color: var(--text); }
+  .backup-size { color: var(--text2); }
+  .backup-age  { color: var(--text3); }
+  .backup-badge {
+    font-size: 10px; padding: 2px 7px; border-radius: 3px;
+    background: var(--green-dim); color: var(--green);
+  }
+
+  @media (max-width: 900px) {
+    .grid-top { grid-template-columns: repeat(2,1fr); }
+    .grid-main, .grid-bottom { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="logo">
+    <div class="logo-dot" id="system-dot"></div>
+    <div>
+      <div class="logo-text">AUTOPILOT</div>
+      <div class="logo-sub">OPERATIONS CENTER</div>
+    </div>
+  </div>
+  <div class="header-right">
+    <div class="clock" id="clock"></div>
+    <button class="refresh-btn" onclick="refresh()">↺ REFRESH</button>
+  </div>
+</div>
+
+<!-- ── KPI Row ── -->
+<div class="grid-top">
+  <div class="card">
+    <div class="card-label">Services online</div>
+    <div class="card-value green" id="kpi-online">4 / 4</div>
+    <div class="card-sub">All systems operational</div>
+  </div>
+  <div class="card">
+    <div class="card-label">Avg uptime (30d)</div>
+    <div class="card-value" id="kpi-uptime">99.7%</div>
+    <div class="card-sub">SLA target: 99.5%</div>
+  </div>
+  <div class="card">
+    <div class="card-label">Last deploy</div>
+    <div class="card-value" style="font-size:18px" id="kpi-deploy">2h ago</div>
+    <div class="card-sub" id="kpi-deploy-sha">main · a3f2c1d</div>
+  </div>
+  <div class="card">
+    <div class="card-label">Last backup</div>
+    <div class="card-value green" style="font-size:18px" id="kpi-backup">02:00 UTC</div>
+    <div class="card-sub">34.2 MB · S3 ✓</div>
+  </div>
+</div>
+
+<!-- ── Main grid ── -->
+<div class="grid-main">
+  <!-- Services -->
+  <div class="card">
+    <div class="section-header">Live service status</div>
+    <div class="service-list" id="service-list"></div>
+  </div>
+
+  <!-- Deploy feed -->
+  <div class="card">
+    <div class="section-header">Deploy history</div>
+    <div class="deploy-list" id="deploy-list"></div>
+  </div>
+</div>
+
+<!-- ── Bottom grid ── -->
+<div class="grid-bottom">
+  <!-- Uptime chart -->
+  <div class="card">
+    <div class="section-header">30-day uptime</div>
+    <div class="uptime-chart" id="uptime-chart"></div>
+  </div>
+
+  <!-- Backups -->
+  <div class="card">
+    <div class="section-header">Backup status</div>
+    <div class="backup-list" id="backup-list"></div>
+  </div>
+</div>
+
+<!-- ── Alert feed ── -->
+<div class="card" style="margin-top:12px">
+  <div class="section-header">Alert log</div>
+  <div class="alert-list" id="alert-list"></div>
+</div>
+
+<script>
+// ── Clock ──
+function updateClock() {
+  const now = new Date();
+  document.getElementById('clock').textContent =
+    now.toUTCString().replace('GMT','UTC').slice(0,-4);
+}
+updateClock();
+setInterval(updateClock, 1000);
+
+// ── Simulated live data (replace fetch() calls with your real /health endpoints) ──
+const SERVICES = [
+  { name: 'Dele API',          url: 'https://dele-api.railway.app/health',      status: 'ok',   latency: 94,  uptime: 99.9 },
+  { name: 'BizSuite PageForge',url: 'https://pageforge.railway.app/health',     status: 'ok',   latency: 112, uptime: 99.5 },
+  { name: 'BizSuite OutreachBot',url:'https://outreachbot.railway.app/health',  status: 'ok',   latency: 87,  uptime: 100  },
+  { name: 'OpenClaw',          url: 'https://openclaw.railway.app/health',      status: 'warn', latency: 340, uptime: 98.1 },
+];
+
+const DEPLOYS = [
+  { icon: '🚀', msg: 'Dele API deployed successfully', sha: 'a3f2c1d', time: '2h ago',  ok: true  },
+  { icon: '✅', msg: 'All health checks passed post-deploy', sha: 'a3f2c1d', time: '2h ago', ok: true },
+  { icon: '🚀', msg: 'PageForge + OutreachBot deployed', sha: 'b91e44a', time: '1d ago', ok: true  },
+  { icon: '⚠️', msg: 'OpenClaw deploy — high latency detected', sha: 'c22f019', time: '2d ago', ok: false },
+  { icon: '🚀', msg: 'Full stack deploy', sha: 'd88a301', time: '4d ago', ok: true  },
+];
+
+const ALERTS = [
+  { type: 'warn',     icon: '⚠️',  msg: 'OpenClaw response time elevated (340ms vs 150ms baseline)', meta: '18 min ago · auto-flagged' },
+  { type: 'ok',       icon: '✅',  msg: 'Daily backup completed — 34.2 MB uploaded to S3', meta: '3h ago · autopilot-backup' },
+  { type: 'ok',       icon: '🚀',  msg: 'Dele API deployed and health-verified (94ms)', meta: '2h ago · GitHub Actions' },
+  { type: 'critical', icon: '🚨',  msg: 'OutreachBot was unreachable for 4 min — auto-restarted, recovered', meta: 'Yesterday 14:22 UTC' },
+  { type: 'info',     icon: 'ℹ️',  msg: 'S3 backup pruned 1 folder older than 30 days', meta: '3d ago · autopilot-backup' },
+  { type: 'ok',       icon: '✅',  msg: 'All services passing health checks — no incidents', meta: '4d ago · healthcheck' },
+];
+
+const BACKUPS = [
+  { name: 'dele_db',     size: '18.4 MB', age: '3h ago' },
+  { name: 'bizsuite_db', size: '9.1 MB',  age: '3h ago' },
+  { name: 'uploads/',    size: '4.8 MB',  age: '3h ago' },
+  { name: 'data/',       size: '1.9 MB',  age: '3h ago' },
+];
+
+// ── Render services ──
+function renderServices() {
+  const el = document.getElementById('service-list');
+  el.innerHTML = SERVICES.map(s => {
+    const lat = s.status === 'ok' ? `${s.latency}ms` : s.status === 'warn' ? `${s.latency}ms` : '—';
+    const badge = s.status === 'ok' ? 'HTTP 200' : s.status === 'warn' ? 'SLOW' : 'DOWN';
+    return `<div class="service-row status-${s.status}">
+      <div class="svc-dot ${s.status}"></div>
+      <div class="svc-name">${s.name}</div>
+      <div class="svc-latency">${lat}</div>
+      <div class="svc-status ${s.status}">${badge}</div>
+      <div class="svc-uptime">${s.uptime}%</div>
+    </div>`;
+  }).join('');
+}
+
+// ── Render deploys ──
+function renderDeploys() {
+  document.getElementById('deploy-list').innerHTML = DEPLOYS.map(d =>
+    `<div class="deploy-row">
+      <span class="deploy-icon">${d.icon}</span>
+      <span class="deploy-msg">${d.msg}</span>
+      <span class="deploy-sha">${d.sha}</span>
+      <span class="deploy-time">${d.time}</span>
+    </div>`
+  ).join('');
+}
+
+// ── Render 30-day uptime bars ──
+function renderUptime() {
+  const el = document.getElementById('uptime-chart');
+  el.innerHTML = SERVICES.map(s => {
+    const bars = Array.from({length: 30}, (_, i) => {
+      // Simulate mostly-ok with occasional incidents
+      const r = Math.random();
+      const cls = r > 0.97 ? 'down' : r > 0.93 ? 'partial' : 'ok';
+      return `<div class="uptime-bar ${cls}" title="Day ${30-i}"></div>`;
+    }).join('');
+    return `<div class="uptime-row">
+      <div class="uptime-row-header">
+        <span>${s.name}</span>
+        <span>${s.uptime}%</span>
+      </div>
+      <div class="uptime-bars">${bars}</div>
+    </div>`;
+  }).join('');
+}
+
+// ── Render backups ──
+function renderBackups() {
+  document.getElementById('backup-list').innerHTML = BACKUPS.map(b =>
+    `<div class="backup-row">
+      <span style="font-size:14px">💾</span>
+      <span class="backup-name">${b.name}</span>
+      <span class="backup-size">${b.size}</span>
+      <span class="backup-age">${b.age}</span>
+      <span class="backup-badge">✓ S3</span>
+    </div>`
+  ).join('');
+}
+
+// ── Render alerts ──
+function renderAlerts() {
+  document.getElementById('alert-list').innerHTML = ALERTS.map(a =>
+    `<div class="alert-row ${a.type}">
+      <span class="alert-icon">${a.icon}</span>
+      <div class="alert-body">
+        <div class="alert-msg">${a.msg}</div>
+        <div class="alert-meta">${a.meta}</div>
+      </div>
+    </div>`
+  ).join('');
+}
+
+// ── KPI update ──
+function updateKPIs() {
+  const online = SERVICES.filter(s => s.status !== 'down').length;
+  document.getElementById('kpi-online').textContent = `${online} / ${SERVICES.length}`;
+  if (online < SERVICES.length) {
+    document.getElementById('kpi-online').className = 'card-value red';
+    document.getElementById('system-dot').style.background = 'var(--amber)';
+    document.getElementById('system-dot').style.boxShadow = '0 0 8px var(--amber)';
+  }
+}
+
+function refresh() {
+  renderServices();
+  renderDeploys();
+  renderUptime();
+  renderBackups();
+  renderAlerts();
+  updateKPIs();
+}
+
+// ── Simulate live latency jitter ──
+function jitter() {
+  SERVICES.forEach(s => {
+    if (s.status === 'ok') s.latency = Math.max(40, s.latency + Math.floor((Math.random()-0.5)*20));
+    if (s.status === 'warn') s.latency = Math.max(200, s.latency + Math.floor((Math.random()-0.5)*40));
+  });
+  renderServices();
+}
+
+refresh();
+setInterval(jitter, 3000);
+</script>
+</body>
+</html>
