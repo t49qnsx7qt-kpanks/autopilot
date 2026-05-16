@@ -1,6 +1,6 @@
 # Autopilot
 
-Production automation stack I built and use across my own platforms (Dele, BizSuite, AgentPay). Handles deployment, health monitoring, backup, and alerting so I don't have to babysit servers at 3am.
+Production automation stack I built and use across my own platforms (Dele, BizSuite, MnemoPay). Handles deployment, health monitoring, backup, and alerting so I don't have to babysit servers at 3am.
 
 ## What it does
 
